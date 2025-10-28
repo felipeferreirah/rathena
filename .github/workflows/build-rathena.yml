@@ -1,51 +1,115 @@
-name: Build & Deploy rAthena Server
+name: rAthena CI/CD Pipeline
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-jobs:
-  build-deploy:
-    name: Build & Deploy to DigitalOcean
-    runs-on: ubuntu-latest
-    environment: production
+env:
+  BUILD_DIR: build
+  ARTIFACT_NAME: rathena-binaries.tar.gz
 
+# ==========================================
+# 1️⃣ PREPARE ENVIRONMENT
+# ==========================================
+jobs:
+  prepare:
+    name: 🧰 Prepare Environment
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}
     steps:
-      # =========================
-      # 1️⃣ Checa o repositório
-      # =========================
-      - name: Checkout repository
+      - name: 🧩 Checkout repository
         uses: actions/checkout@v4
 
-      # =========================
-      # 2️⃣ Instala dependências
-      # =========================
-      - name: Install dependencies
+      - name: ⚙️ Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y build-essential cmake mysql-client libmysqlclient-dev zlib1g-dev libssl-dev
 
-      # =========================
-      # 3️⃣ Compila o rAthena com Web Server
-      # =========================
-      - name: Build rAthena (CMake)
-        run: |
-          cmake -B build -DWEB_SERVER_ENABLE=ON
-          cmake --build build --parallel
-          ls -la build/
+      - name: 🗃️ Cache dependencies (CMake)
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache
+          key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
 
-      # =========================
-      # 4️⃣ Empacota os binários
-      # =========================
-      - name: Package build artifacts
+      - name: 🧹 Clean unnecessary triggers
         run: |
-          tar -czvf rathena-binaries.tar.gz -C build .
+          git diff --name-only HEAD~1 HEAD | grep -q 'conf/' && echo "⚠️ Conf change detected — skipping rebuild" && exit 0 || echo "No conf changes, building..."
 
-      # =========================
-      # 5️⃣ Faz upload para o servidor (Droplet)
-      # =========================
-      - name: Upload binaries to DigitalOcean
+
+# ==========================================
+# 2️⃣ BUILD SERVER
+# ==========================================
+  build:
+    name: 🏗️ Build rAthena (CMake)
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: 🧩 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🧱 Configure and Build
+        run: |
+          cmake -B $BUILD_DIR -DWEB_SERVER_ENABLE=ON
+          cmake --build $BUILD_DIR --parallel
+          ls -la $BUILD_DIR/
+
+      - name: ✅ Verify build result
+        run: |
+          test -f $BUILD_DIR/map-server && echo "✅ map-server OK" || exit 1
+          test -f $BUILD_DIR/char-server && echo "✅ char-server OK" || exit 1
+          test -f $BUILD_DIR/login-server && echo "✅ login-server OK" || exit 1
+          test -f $BUILD_DIR/web-server && echo "✅ web-server OK" || echo "⚠️ Web server missing"
+
+# ==========================================
+# 3️⃣ PACKAGE & UPLOAD
+# ==========================================
+  package:
+    name: 📦 Package & Upload Artifacts
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: 🧩 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 📁 Download previous build output (if cached)
+        uses: actions/download-artifact@v4
+        if: always()
+        with:
+          name: rathena-binaries
+          path: .
+
+      - name: 📦 Create tarball
+        run: |
+          tar -czvf $ARTIFACT_NAME -C build .
+          ls -lh $ARTIFACT_NAME
+
+      - name: ⬆️ Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rathena-binaries
+          path: ${{ env.ARTIFACT_NAME }}
+
+# ==========================================
+# 4️⃣ DEPLOY TO DIGITAL OCEAN
+# ==========================================
+  deploy:
+    name: 🚀 Deploy to DigitalOcean
+    runs-on: ubuntu-latest
+    needs: package
+    environment: production
+
+    steps:
+      - name: 📥 Download artifact from build
+        uses: actions/download-artifact@v4
+        with:
+          name: rathena-binaries
+          path: .
+
+      - name: 🌍 Upload binaries via SSH
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DO_HOST }}
@@ -55,10 +119,7 @@ jobs:
           source: rathena-binaries.tar.gz
           target: /root/endless/rathena/
 
-      # =========================
-      # 6️⃣ Reinicia o servidor remotamente
-      # =========================
-      - name: Restart rAthena server remotely
+      - name: 🔄 Restart rAthena services remotely
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.DO_HOST }}
@@ -69,5 +130,5 @@ jobs:
             cd /root/endless/rathena
             tar -xzvf rathena-binaries.tar.gz
             rm rathena-binaries.tar.gz
-            ./athena-start restart
-            echo "✅ rAthena successfully redeployed!"
+            ./athena-start restart || ./athena-start start
+            echo "✅ rAthena fully redeployed!"
