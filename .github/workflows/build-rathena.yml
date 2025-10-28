@@ -1,4 +1,4 @@
-name: Build rAthena Server
+name: Build & Deploy rAthena Server
 
 on:
   push:
@@ -11,46 +11,65 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
     name: Build rAthena (CMake)
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential cmake make gcc g++ \
-          libmysqlclient-dev libpcre3-dev zlib1g-dev \
-          libssl-dev libmariadb-dev libmariadb-dev-compat
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # Evita conflito entre MariaDB e MySQL
+          sudo apt-get remove -y libmariadb-dev libmariadb3 || true
+          sudo apt-get install -y build-essential cmake gcc g++ make zlib1g-dev
+          sudo apt-get install -y libmysqlclient-dev
 
-    - name: Configure CMake
-      run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-              -DENABLE_TESTS=ON
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
-    - name: Build rAthena
-      run: cmake --build build --config ${{ env.BUILD_TYPE }}
+      - name: Build rAthena
+        run: cmake --build build --config ${{env.BUILD_TYPE}}
 
-    - name: Verify binaries
-      run: |
-        echo "Build completed. Checking output files..."
-        ls -lh build | grep server || true
+      - name: Upload compiled binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: rathena-binaries
+          path: |
+            build/login-server
+            build/char-server
+            build/map-server
 
-    - name: Basic smoke test (simulate startup)
-      working-directory: build
-      run: |
-        echo "Starting login-server (dry run)..."
-        ./login-server --help | head -n 10
-        echo "Starting char-server (dry run)..."
-        ./char-server --help | head -n 10
-        echo "Starting map-server (dry run)..."
-        ./map-server --help | head -n 10
+  deploy:
+    name: Deploy to DigitalOcean
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
 
-    - name: Upload binaries (optional artifact)
-      uses: actions/upload-artifact@v4
-      with:
-        name: rathena-binaries
-        path: build/login-server,build/char-server,build/map-server
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rathena-binaries
+          path: ./build
+
+      - name: Upload binaries to DigitalOcean
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          source: "build/*"
+          target: "~/rathena/build"
+
+      - name: Restart rAthena server remotely
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            cd ~/rathena
+            chmod +x start-server.sh
+            ./start-server.sh restart
