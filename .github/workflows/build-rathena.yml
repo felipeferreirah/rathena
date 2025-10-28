@@ -12,60 +12,41 @@ env:
 
 jobs:
   build:
-    name: Build rAthena (CMake)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get remove -y libmariadb-dev libmariadb3 || true
-          sudo apt-get install -y build-essential cmake gcc g++ make zlib1g-dev
-          sudo apt-get install -y libmysqlclient-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libmysqlclient-dev zlib1g-dev
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
 
       - name: Build rAthena
-        run: cmake --build build --config ${{env.BUILD_TYPE}}
+        run: cmake --build build --config ${{ env.BUILD_TYPE }}
 
-      - name: Verify binaries exist
-        run: |
-          echo "Checking if binaries exist..."
-          ls -lh build || (echo "❌ Build folder missing!" && exit 1)
-
-      - name: Upload compiled binaries
-        if: always()
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: build/
-          retention-days: 7
 
   deploy:
-    name: Deploy to DigitalOcean
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
-    environment:
-      name: production
-
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: ./build
+          path: build/
 
       - name: Upload binaries to DigitalOcean
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
-          password: ${{ secrets.DO_PASSWORD }}
+          key: ${{ secrets.DO_SSH_KEY }}
           source: "build/*"
           target: "~/rathena/build"
 
@@ -74,8 +55,8 @@ jobs:
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
-          password: ${{ secrets.DO_PASSWORD }}
+          key: ${{ secrets.DO_SSH_KEY }}
           script: |
             cd ~/rathena
-            chmod +x start-server.sh
-            ./start-server.sh restart
+            screen -S rathena -X quit || true
+            screen -dmS rathena ./athena-start start
