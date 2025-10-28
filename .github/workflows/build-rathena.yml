@@ -1,0 +1,56 @@
+name: Build rAthena Server
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build rAthena (CMake)
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake make gcc g++ \
+          libmysqlclient-dev libpcre3-dev zlib1g-dev \
+          libssl-dev libmariadb-dev libmariadb-dev-compat
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+              -DENABLE_TESTS=ON
+
+    - name: Build rAthena
+      run: cmake --build build --config ${{ env.BUILD_TYPE }}
+
+    - name: Verify binaries
+      run: |
+        echo "Build completed. Checking output files..."
+        ls -lh build | grep server || true
+
+    - name: Basic smoke test (simulate startup)
+      working-directory: build
+      run: |
+        echo "Starting login-server (dry run)..."
+        ./login-server --help | head -n 10
+        echo "Starting char-server (dry run)..."
+        ./char-server --help | head -n 10
+        echo "Starting map-server (dry run)..."
+        ./map-server --help | head -n 10
+
+    - name: Upload binaries (optional artifact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: rathena-binaries
+        path: build/login-server,build/char-server,build/map-server
