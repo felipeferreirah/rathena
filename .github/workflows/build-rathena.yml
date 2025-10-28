@@ -32,15 +32,18 @@ jobs:
       - name: Build rAthena
         run: cmake --build build --config ${{env.BUILD_TYPE}}
 
+      - name: Verify binaries exist
+        run: |
+          echo "Checking if binaries exist..."
+          ls -lh build || (echo "❌ Build folder missing!" && exit 1)
+
       - name: Upload compiled binaries
-        if: success() && always()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: |
-            build/login-server
-            build/char-server
-            build/map-server
+          path: build/
+          retention-days: 7
 
   deploy:
     name: Deploy to DigitalOcean
