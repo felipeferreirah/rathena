@@ -75,7 +75,7 @@ jobs:
   deploy:
     name: 🚀 Deploy to DigitalOcean
     runs-on: ubuntu-latest
-    needs: build
+    needs: package
     environment: production
 
     steps:
@@ -92,39 +92,21 @@ jobs:
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
           port: 22
-          source: "*"
-          target: /root/endless/rathena/build/
-          overwrite: true
+          source: rathena-binaries.tar.gz
+          target: /root/endless/rathena/
 
-      - name: 🔄 Restart rAthena services remotely
+      - name: 🔄 Run remote redeploy script
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
           port: 22
-          timeout: 180s             # garante conexão longa
-          command_timeout: 120s     # comando pode rodar até 2min
-          script_stop: false        # evita interromper ao primeiro erro
-          debug: true               # mostra saída detalhada
+          timeout: 180s
+          command_timeout: 120s
+          script_stop: false
+          debug: true
           script: |
-            set -e
-            cd /root/endless/rathena
-
-            echo "🛑 Stopping existing processes..."
-            pkill -f map-server || true
-            pkill -f char-server || true
-            pkill -f login-server || true
-            pkill -f web-server || true
-
-            echo "🚀 Starting new rAthena servers..."
-            # Rodar em background absoluto sem travar a sessão SSH
-            nohup ./athena-start start > restart.log 2>&1 < /dev/null & disown
-
-            echo "⏳ Waiting 10 seconds for server boot..."
-            sleep 10
-
-            echo "🔍 Last log lines:"
-            tail -n 15 restart.log || echo "No logs yet."
-
-            echo "✅ Redeploy complete. Servers running in background!"
+            echo "🚀 Executando redeploy remoto..."
+            bash /root/endless/rathena/redeploy.sh
+            echo "✅ Redeploy concluído remotamente!"
