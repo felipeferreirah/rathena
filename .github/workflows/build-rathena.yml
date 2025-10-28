@@ -13,11 +13,17 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: production
+    name: Build rAthena (CMake)
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libmysqlclient-dev zlib1g-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libmysqlclient-dev zlib1g-dev
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
@@ -25,7 +31,7 @@ jobs:
       - name: Build rAthena
         run: cmake --build build --config ${{ env.BUILD_TYPE }}
 
-      - name: Upload artifact
+      - name: Upload compiled binaries
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -34,12 +40,21 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    environment: production
+    name: Deploy to DigitalOcean
+
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: build/
+
+      - name: Validate required secrets
+        run: |
+          test -n "${{ secrets.DO_HOST }}" || (echo "❌ Missing DO_HOST secret" && exit 1)
+          test -n "${{ secrets.DO_USER }}" || (echo "❌ Missing DO_USER secret" && exit 1)
+          test -n "${{ secrets.DO_SSH_KEY }}" || (echo "❌ Missing DO_SSH_KEY secret" && exit 1)
+          echo "✅ All required secrets are set."
 
       - name: Upload binaries to DigitalOcean
         uses: appleboy/scp-action@v0.1.7
@@ -47,8 +62,10 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
+          port: 22
           source: "build/*"
           target: "~/rathena/build"
+          timeout: 60s
 
       - name: Restart rAthena server remotely
         uses: appleboy/ssh-action@v0.1.10
@@ -56,7 +73,9 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
+          port: 22
           script: |
+            echo "🔄 Restarting rAthena server..."
             cd ~/rathena
-            screen -S rathena -X quit || true
-            screen -dmS rathena ./athena-start start
+            ./athena-start restart || ./athena-start start
+            echo "✅ rAthena server restarted successfully."
