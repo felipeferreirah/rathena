@@ -31,14 +31,8 @@ jobs:
         id: cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache
+          path: ~/.cache
           key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
-
-      - name: 🧹 Clean unnecessary triggers
-        run: |
-          git diff --name-only HEAD~1 HEAD | grep -q 'conf/' && echo "⚠️ Conf change detected — skipping rebuild" && exit 0 || echo "No conf changes, building..."
-
 
 # ==========================================
 # 2️⃣ BUILD SERVER
@@ -53,53 +47,35 @@ jobs:
 
       - name: 🧱 Configure and Build
         run: |
+          mkdir -p $BUILD_DIR
           cmake -B $BUILD_DIR -DWEB_SERVER_ENABLE=ON
-          cmake --build $BUILD_DIR --parallel
-          ls -la $BUILD_DIR/
+          cmake --build $BUILD_DIR --parallel $(nproc)
+          echo "✅ Build complete"
 
-      - name: ✅ Verify build result
+      - name: ✅ Verify build results
         run: |
-          test -f $BUILD_DIR/map-server && echo "✅ map-server OK" || exit 1
-          test -f $BUILD_DIR/char-server && echo "✅ char-server OK" || exit 1
-          test -f $BUILD_DIR/login-server && echo "✅ login-server OK" || exit 1
-          test -f $BUILD_DIR/web-server && echo "✅ web-server OK" || echo "⚠️ Web server missing"
+          ls -lh $BUILD_DIR/
+          for bin in login-server char-server map-server web-server; do
+            if [ -f "$BUILD_DIR/$bin" ]; then
+              echo "✅ $bin OK"
+            else
+              echo "⚠️ $bin missing"
+            fi
+          done
 
-# ==========================================
-# 3️⃣ PACKAGE & UPLOAD
-# ==========================================
-  package:
-    name: 📦 Package & Upload Artifacts
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: 🧩 Checkout repository
-        uses: actions/checkout@v4
-
-      - name: 📁 Download previous build output (if cached)
-        uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: rathena-binaries
-          path: .
-
-      - name: 📦 Create tarball
-        run: |
-          tar -czvf $ARTIFACT_NAME -C build .
-          ls -lh $ARTIFACT_NAME
-
-      - name: ⬆️ Upload artifact
+      - name: 📦 Upload compiled binaries as artifact
         uses: actions/upload-artifact@v4
         with:
           name: rathena-binaries
-          path: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.BUILD_DIR }}/*
 
 # ==========================================
-# 4️⃣ DEPLOY TO DIGITAL OCEAN
+# 3️⃣ DEPLOY TO DIGITAL OCEAN
 # ==========================================
   deploy:
     name: 🚀 Deploy to DigitalOcean
     runs-on: ubuntu-latest
-    needs: package
+    needs: build
     environment: production
 
     steps:
@@ -116,8 +92,9 @@ jobs:
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
           port: 22
-          source: rathena-binaries.tar.gz
-          target: /root/endless/rathena/
+          source: "*"
+          target: /root/endless/rathena/build/
+          overwrite: true
 
       - name: 🔄 Restart rAthena services remotely
         uses: appleboy/ssh-action@v0.1.10
@@ -128,7 +105,9 @@ jobs:
           port: 22
           script: |
             cd /root/endless/rathena
-            tar -xzvf rathena-binaries.tar.gz
-            rm rathena-binaries.tar.gz
-            ./athena-start restart || ./athena-start start
-            echo "✅ rAthena fully redeployed!"
+            pkill -f map-server || true
+            pkill -f char-server || true
+            pkill -f login-server || true
+            pkill -f web-server || true
+            ./athena-start start
+            echo "✅ rAthena fully redeployed and restarted!"
