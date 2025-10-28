@@ -2,60 +2,49 @@ name: Build & Deploy rAthena Server
 
 on:
   push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
-
-env:
-  BUILD_TYPE: Release
-  ARTIFACT_NAME: rathena-binaries
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-deploy:
+    name: Build & Deploy to DigitalOcean
     runs-on: ubuntu-latest
     environment: production
-    name: Build rAthena (CMake)
 
     steps:
+      # =========================
+      # 1️⃣ Checa o repositório
+      # =========================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # =========================
+      # 2️⃣ Instala dependências
+      # =========================
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake libmysqlclient-dev zlib1g-dev
+          sudo apt update
+          sudo apt install -y build-essential cmake mysql-client libmysqlclient-dev zlib1g-dev libssl-dev
 
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
-
-      - name: Build rAthena
-        run: cmake --build build --config ${{ env.BUILD_TYPE }}
-
-      - name: Upload compiled binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: build/
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: production
-    name: Deploy to DigitalOcean
-
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-
-      - name: Validate required secrets
+      # =========================
+      # 3️⃣ Compila o rAthena com Web Server
+      # =========================
+      - name: Build rAthena (CMake)
         run: |
-          test -n "${{ secrets.DO_HOST }}" || (echo "❌ Missing DO_HOST secret" && exit 1)
-          test -n "${{ secrets.DO_USER }}" || (echo "❌ Missing DO_USER secret" && exit 1)
-          test -n "${{ secrets.DO_SSH_KEY }}" || (echo "❌ Missing DO_SSH_KEY secret" && exit 1)
-          echo "✅ All required secrets are set."
+          cmake -B build -DWEB_SERVER_ENABLE=ON
+          cmake --build build --parallel
+          ls -la build/
 
+      # =========================
+      # 4️⃣ Empacota os binários
+      # =========================
+      - name: Package build artifacts
+        run: |
+          tar -czvf rathena-binaries.tar.gz -C build .
+
+      # =========================
+      # 5️⃣ Faz upload para o servidor (Droplet)
+      # =========================
       - name: Upload binaries to DigitalOcean
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -63,10 +52,12 @@ jobs:
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
           port: 22
-          source: "build/*"
-          target: "~/rathena/build"
-          timeout: 60s
+          source: rathena-binaries.tar.gz
+          target: /root/endless/rathena/
 
+      # =========================
+      # 6️⃣ Reinicia o servidor remotamente
+      # =========================
       - name: Restart rAthena server remotely
         uses: appleboy/ssh-action@v0.1.10
         with:
@@ -75,7 +66,8 @@ jobs:
           key: ${{ secrets.DO_SSH_KEY }}
           port: 22
           script: |
-            echo "🔄 Restarting rAthena server..."
-            cd ~/rathena
-            ./athena-start restart || ./athena-start start
-            echo "✅ rAthena server restarted successfully."
+            cd /root/endless/rathena
+            tar -xzvf rathena-binaries.tar.gz
+            rm rathena-binaries.tar.gz
+            ./athena-start restart
+            echo "✅ rAthena successfully redeployed!"
