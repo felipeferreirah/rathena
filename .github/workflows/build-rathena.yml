@@ -46,6 +46,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
+    environment:
+      name: production
 
     steps:
       - name: Download build artifact
@@ -59,7 +61,7 @@ jobs:
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
-          key: ${{ secrets.DO_SSH_KEY }}
+          password: ${{ secrets.DO_PASSWORD }}
           source: "build/*"
           target: "~/rathena/build"
 
@@ -68,7 +70,7 @@ jobs:
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
-          key: ${{ secrets.DO_SSH_KEY }}
+          password: ${{ secrets.DO_PASSWORD }}
           script: |
             cd ~/rathena
             chmod +x start-server.sh
