@@ -8,6 +8,7 @@ on:
 
 env:
   BUILD_TYPE: Release
+  ARTIFACT_NAME: rathena-binaries
 
 jobs:
   build:
@@ -21,7 +22,6 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          # Evita conflito entre MariaDB e MySQL
           sudo apt-get remove -y libmariadb-dev libmariadb3 || true
           sudo apt-get install -y build-essential cmake gcc g++ make zlib1g-dev
           sudo apt-get install -y libmysqlclient-dev
@@ -33,9 +33,10 @@ jobs:
         run: cmake --build build --config ${{env.BUILD_TYPE}}
 
       - name: Upload compiled binaries
+        if: success() && always()
         uses: actions/upload-artifact@v4
         with:
-          name: rathena-binaries
+          name: ${{ env.ARTIFACT_NAME }}
           path: |
             build/login-server
             build/char-server
@@ -53,7 +54,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: rathena-binaries
+          name: ${{ env.ARTIFACT_NAME }}
           path: ./build
 
       - name: Upload binaries to DigitalOcean
