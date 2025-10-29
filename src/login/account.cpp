@@ -29,7 +29,7 @@ typedef struct AccountDB_SQL {
 	std::string db_password = "";
 	std::string db_database = "ragnarok";
 	std::string codepage = "";
-	// other settings
+	
 	bool case_sensitive;
 	//table name
 	char account_db[32];
