@@ -63,6 +63,12 @@ jobs:
             fi
           done
 
+      - name: ⚙️ Set execute permission on scripts
+        run: |
+          chmod +x start-server.sh
+          chmod +x redeploy.sh
+          echo "✅ Executable permissions applied"
+
       - name: 📦 Package binaries and scripts
         run: |
           tar -czvf $ARTIFACT_NAME \
@@ -127,5 +133,6 @@ jobs:
           debug: true
           script: |
             echo "🚀 Executando redeploy remoto..."
+            chmod +x /root/endless/rathena/redeploy.sh
             bash /root/endless/rathena/redeploy.sh
             echo "✅ Redeploy concluído remotamente!"
