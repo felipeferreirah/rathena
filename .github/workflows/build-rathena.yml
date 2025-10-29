@@ -66,8 +66,9 @@ jobs:
 
       - name: 📦 Package binaries
         run: |
-          tar -czvf $ARTIFACT_NAME -C $BUILD_DIR .
-          ls -lh $ARTIFACT_NAME
+            tar -czvf $ARTIFACT_NAME \
+              -C $BUILD_DIR . \
+              -C $GITHUB_WORKSPACE start-server.sh redeploy.sh
 
       - name: ⬆️ Upload compiled binaries as artifact
         uses: actions/upload-artifact@v4
