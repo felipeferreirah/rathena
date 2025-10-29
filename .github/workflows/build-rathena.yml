@@ -34,7 +34,6 @@ jobs:
           path: ~/.cache
           key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
 
-
 # ==========================================
 # 2️⃣ BUILD SERVER
 # ==========================================
@@ -64,11 +63,12 @@ jobs:
             fi
           done
 
-      - name: 📦 Package binaries
+      - name: 📦 Package binaries and scripts
         run: |
-            tar -czvf $ARTIFACT_NAME \
-              -C $BUILD_DIR . \
-              -C $GITHUB_WORKSPACE start-server.sh redeploy.sh
+          tar -czvf $ARTIFACT_NAME \
+            -C $BUILD_DIR . \
+            -C $GITHUB_WORKSPACE start-server.sh \
+            -C $GITHUB_WORKSPACE redeploy.sh
 
       - name: ⬆️ Upload compiled binaries as artifact
         uses: actions/upload-artifact@v4
@@ -91,6 +91,18 @@ jobs:
         with:
           name: rathena-binaries
           path: .
+
+      - name: 🧭 Sync server repository (git pull)
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: 22
+          script: |
+            cd /root/endless/rathena
+            git fetch origin main
+            git reset --hard origin/main
 
       - name: 🌍 Upload binaries via SSH
         uses: appleboy/scp-action@v0.1.7
