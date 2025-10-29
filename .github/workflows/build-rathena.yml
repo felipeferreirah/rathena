@@ -18,25 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cache-hit: ${{ steps.cache.outputs.cache-hit }}
-
     steps:
-      - name: 🧭 Update server repository (auto-detect branch)
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.DO_HOST }}
-          username: ${{ secrets.DO_USER }}
-          key: ${{ secrets.DO_SSH_KEY }}
-          port: 22
-          timeout: 90s
-          command_timeout: 90s
-          script: |
-            cd /root/endless/rathena || exit 1
-            BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "master")
-            echo "🧭 Detected branch: $BRANCH"
-            git fetch origin $BRANCH
-            git reset --hard origin/$BRANCH
-            git clean -fdx
-
       - name: 🧩 Checkout repository
         uses: actions/checkout@v4
 
@@ -59,7 +41,6 @@ jobs:
     name: 🏗️ Build rAthena (CMake)
     runs-on: ubuntu-latest
     needs: prepare
-
     steps:
       - name: 🧩 Checkout repository
         uses: actions/checkout@v4
@@ -82,15 +63,14 @@ jobs:
             fi
           done
 
-      - name: 📦 Package binaries + scripts
+      - name: 📦 Package binaries and scripts
         run: |
-          echo "📦 Creating package..."
           tar -czvf $ARTIFACT_NAME \
             -C $BUILD_DIR . \
-            -C $GITHUB_WORKSPACE start-server.sh redeploy.sh
-          ls -lh $ARTIFACT_NAME
+            -C $GITHUB_WORKSPACE start-server.sh \
+            -C $GITHUB_WORKSPACE redeploy.sh
 
-      - name: ⬆️ Upload compiled binaries
+      - name: ⬆️ Upload compiled binaries as artifact
         uses: actions/upload-artifact@v4
         with:
           name: rathena-binaries
@@ -112,7 +92,19 @@ jobs:
           name: rathena-binaries
           path: .
 
-      - name: 🌍 Upload binaries via SSH (SCP)
+      - name: 🧭 Sync server repository (git pull)
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: 22
+          script: |
+            cd /root/endless/rathena
+            git fetch origin master
+            git reset --hard origin/master
+
+      - name: 🌍 Upload binaries via SSH
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DO_HOST }}
@@ -135,10 +127,5 @@ jobs:
           debug: true
           script: |
             echo "🚀 Executando redeploy remoto..."
-            cd /root/endless/rathena || exit 1
-            if [ -f ./redeploy.sh ]; then
-              bash ./redeploy.sh
-            else
-              echo "⚠️ redeploy.sh não encontrado!"
-            fi
+            bash /root/endless/rathena/redeploy.sh
             echo "✅ Redeploy concluído remotamente!"
