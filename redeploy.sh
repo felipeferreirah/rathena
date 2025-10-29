@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
+echo "🧹 Limpando processos antigos..."
+pkill -f login-server || true
+pkill -f char-server || true
+pkill -f map-server || true
+pkill -f web-server || true
+sleep 2
+
+
 cd /root/endless/rathena
 
 echo "🛑 Parando serviços existentes..."
