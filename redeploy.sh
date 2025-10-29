@@ -7,7 +7,8 @@ pkill -f char-server || true
 pkill -f map-server || true
 pkill -f web-server || true
 sleep 2
-
+ 
+ 
 
 cd /root/endless/rathena
 
